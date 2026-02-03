@@ -7,10 +7,11 @@ const cron = require("node-cron");
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
-const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "* 11 * * *"; // 11:30
+const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "30 11 * * *"; // 11:30
 const TIMEZONE = process.env.TZ || "Europe/Warsaw";
 
-const SOURCE_URL = process.env.SOURCE_URL || "https://guildstats.eu/guild=bambiki&op=3";
+const SOURCE_URL =
+  process.env.SOURCE_URL || "https://guildstats.eu/guild=bambiki&op=3";
 const TABLE_ID = process.env.TABLE_ID || "myTable2";
 
 if (!TOKEN) throw new Error("Brak DISCORD_TOKEN w .env");
@@ -36,25 +37,50 @@ function formatTimestamp(date = new Date()) {
     minute: "2-digit",
     second: "2-digit",
   });
+
   const parts = dtf.format(date).replace(",", "");
   const [d, t] = parts.split(" ");
   const [dd, mm, yyyy] = d.split(".");
   return `${yyyy}-${mm}-${dd} ${t} (${TIMEZONE})`;
 }
 
-function chunkTextBlocks(lines, maxMessageLen = 1900) {
+// ===== ANSI styling for Discord code blocks =====
+// W większości klientów Discorda działa ```ansi```.
+// + zielone, - czerwone, nagłówek szary/pogrubiony.
+const ANSI = {
+  reset: "\u001b[0m",
+  bold: "\u001b[1m",
+  gray: "\u001b[90m",
+  green: "\u001b[32m",
+  red: "\u001b[31m",
+};
+
+function stripAnsi(s) {
+  return String(s).replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function colorizeSigned(text) {
+  const s = String(text ?? "").trim();
+  if (s.startsWith("+")) return `${ANSI.green}${s}${ANSI.reset}`;
+  if (s.startsWith("-")) return `${ANSI.red}${s}${ANSI.reset}`;
+  return s;
+}
+
+function chunkAnsiBlocks(lines, maxMessageLen = 1900) {
   const chunks = [];
-  let current = "```text\n";
+  let current = "```ansi\n";
+
   for (const line of lines) {
     const next = line + "\n";
     if ((current + next + "```").length > maxMessageLen) {
       current += "```";
       chunks.push(current);
-      current = "```text\n" + next;
+      current = "```ansi\n" + next;
     } else {
       current += next;
     }
   }
+
   current += "```";
   chunks.push(current);
   return chunks;
@@ -65,32 +91,30 @@ async function fetchHtmlWithRetry(url, tries = 3) {
 
   for (let i = 1; i <= tries; i++) {
     try {
+      // Cloudflare często blokuje domyślnego klienta -> podszywamy się pod przeglądarkę
       const resp = await axios.get(url, {
         timeout: 25000,
         headers: {
-          // "udajemy" przeglądarkę, bo Cloudflare często blokuje defaultowego klienta
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          "Accept":
+          Accept:
             "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
           "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
           "Cache-Control": "no-cache",
-          "Pragma": "no-cache",
-          "Referer": "https://guildstats.eu/",
+          Pragma: "no-cache",
+          Referer: "https://guildstats.eu/",
         },
         validateStatus: () => true,
       });
 
       console.log(`GUILDSTATS HTTP: ${resp.status}`);
 
-      // 200 -> OK
       if (resp.status === 200) return resp.data;
 
-      // czasem 403/429/503 – warto spróbować ponownie po chwili
       const snippet = String(resp.data).slice(0, 200).replace(/\s+/g, " ");
       lastErr = new Error(`HTTP ${resp.status} | body: ${snippet}`);
 
-      // proste backoff
+      // prosty backoff
       await new Promise((r) => setTimeout(r, 1000 * i));
     } catch (e) {
       lastErr = e;
@@ -104,7 +128,6 @@ async function fetchHtmlWithRetry(url, tries = 3) {
 
 async function fetchAndFormatTable() {
   const html = await fetchHtmlWithRetry(SOURCE_URL, 3);
-
   const $ = cheerio.load(html);
 
   const raw = [];
@@ -117,11 +140,17 @@ async function fetchAndFormatTable() {
   });
 
   if (!raw.length) {
-    console.log("DEBUG: myTable2 exists in HTML?", String(html).includes(TABLE_ID));
-    throw new Error(`Nie znaleziono tabeli o id="${TABLE_ID}" (blokada / zmiana strony).`);
+    console.log(
+      "DEBUG: myTable2 exists in HTML?",
+      String(html).includes(TABLE_ID)
+    );
+    throw new Error(
+      `Nie znaleziono tabeli o id="${TABLE_ID}" (blokada / zmiana strony).`
+    );
   }
 
-  // --- logika jak Twoj skrypt: removeRows + removeColumn + sortTable ---
+  // --- logika jak Twój skrypt: removeRows + removeColumn + sortTable ---
+  // removeRows: usuń wiersze gdzie col[13] == '0' albo '-'
   const filtered = raw.filter((row, i) => {
     if (i === 0) return true;
     const v = row[13];
@@ -140,6 +169,7 @@ async function fetchAndFormatTable() {
   removeColumn(filtered, 2, 10);
   removeColumn(filtered, 5, 1);
 
+  // sortTable(2): sort malejąco po kolumnie 2 (liczbowe)
   const header = filtered.shift();
   const lastRow = filtered.pop();
 
@@ -151,25 +181,41 @@ async function fetchAndFormatTable() {
 
   const finalTable = [header, ...filtered, lastRow].filter(Boolean);
 
-  // --- ładne wyrównanie ---
+  // --- formatowanie ANSI: zielone +, czerwone -, nagłówek szary/pogrubiony ---
+  const coloredTable = finalTable.map((row, idx) => {
+    if (idx === 0) return row.map((c) => String(c ?? "")); // nagłówek bez kolorów
+    return row.map((cell, cIdx) => {
+      // Zakładamy układ: Nick | Lvl | Exp yesterday | Exp 7 days | Exp 30 days
+      // Kolory dajemy od kolumny 2 w prawo (EXP)
+      if (cIdx >= 2) return colorizeSigned(cell);
+      return String(cell ?? "");
+    });
+  });
+
+  // szerokości liczymy po tekście bez ANSI
   const colWidths = [];
-  for (const row of finalTable) {
+  for (const row of coloredTable) {
     row.forEach((cell, i) => {
-      colWidths[i] = Math.max(colWidths[i] || 0, String(cell ?? "").length);
+      const len = stripAnsi(cell).length;
+      colWidths[i] = Math.max(colWidths[i] || 0, len);
     });
   }
 
   const pad = (s, len) => {
-    s = String(s ?? "");
-    if (s.length > len) return s.slice(0, len);
-    return s + " ".repeat(len - s.length);
+    const rawStr = String(s ?? "");
+    const visibleLen = stripAnsi(rawStr).length;
+    if (visibleLen >= len) return rawStr;
+    return rawStr + " ".repeat(len - visibleLen);
   };
 
-  const lines = finalTable.map((row) =>
-    row.map((cell, i) => pad(cell, colWidths[i])).join(" | ")
-  );
+  // Dwie spacje między kolumnami wyglądają bardziej jak tabela z UI
+  const lines = coloredTable.map((row, i) => {
+    const line = row.map((cell, c) => pad(cell, colWidths[c])).join("  ");
+    if (i === 0) return `${ANSI.bold}${ANSI.gray}${line}${ANSI.reset}`;
+    return line;
+  });
 
-  return chunkTextBlocks(lines, 1900);
+  return chunkAnsiBlocks(lines, 1900);
 }
 
 async function sendTable(channel) {
@@ -177,7 +223,9 @@ async function sendTable(channel) {
   await channel.send(`📊 **GuildStats – dane z:** ${ts}`);
 
   const chunks = await fetchAndFormatTable();
-  for (const chunk of chunks) await channel.send(chunk);
+  for (const chunk of chunks) {
+    await channel.send(chunk);
+  }
 }
 
 // ===== EVENTS =====

@@ -14,6 +14,9 @@ const SOURCE_URL =
   process.env.SOURCE_URL || "https://guildstats.eu/guild=bambiki&op=3";
 const TABLE_ID = process.env.TABLE_ID || "myTable2";
 
+// Cache TTL w minutach (10–30 min)
+const CACHE_TTL_MIN = Number(process.env.CACHE_TTL_MIN || 15);
+
 if (!TOKEN) throw new Error("Brak DISCORD_TOKEN w .env");
 if (!CHANNEL_ID) throw new Error("Brak DISCORD_CHANNEL_ID w .env");
 
@@ -45,8 +48,6 @@ function formatTimestamp(date = new Date()) {
 }
 
 // ===== ANSI styling for Discord code blocks =====
-// W większości klientów Discorda działa ```ansi```.
-// + zielone, - czerwone, nagłówek szary/pogrubiony.
 const ANSI = {
   reset: "\u001b[0m",
   bold: "\u001b[1m",
@@ -86,12 +87,33 @@ function chunkAnsiBlocks(lines, maxMessageLen = 1900) {
   return chunks;
 }
 
+// ===== SIMPLE IN-MEMORY CACHE =====
+// Cache jest w RAM procesu bota: jeśli kontener się zrestartuje, cache się zeruje (to OK).
+const tableCache = {
+  fetchedAt: null, // Date
+  chunks: null, // array of strings (```ansi ...```)
+};
+
+function isCacheValid() {
+  if (!tableCache.fetchedAt || !tableCache.chunks) return false;
+  const ageMs = Date.now() - tableCache.fetchedAt.getTime();
+  return ageMs < CACHE_TTL_MIN * 60 * 1000;
+}
+
+function cacheAgeText() {
+  if (!tableCache.fetchedAt) return "";
+  const ageSec = Math.floor((Date.now() - tableCache.fetchedAt.getTime()) / 1000);
+  if (ageSec < 60) return `${ageSec}s`;
+  const ageMin = Math.floor(ageSec / 60);
+  return `${ageMin}m`;
+}
+
+// ===== FETCH + PARSE =====
 async function fetchHtmlWithRetry(url, tries = 3) {
   let lastErr = null;
 
   for (let i = 1; i <= tries; i++) {
     try {
-      // Cloudflare często blokuje domyślnego klienta -> podszywamy się pod przeglądarkę
       const resp = await axios.get(url, {
         timeout: 25000,
         headers: {
@@ -114,7 +136,6 @@ async function fetchHtmlWithRetry(url, tries = 3) {
       const snippet = String(resp.data).slice(0, 200).replace(/\s+/g, " ");
       lastErr = new Error(`HTTP ${resp.status} | body: ${snippet}`);
 
-      // prosty backoff
       await new Promise((r) => setTimeout(r, 1000 * i));
     } catch (e) {
       lastErr = e;
@@ -126,7 +147,19 @@ async function fetchHtmlWithRetry(url, tries = 3) {
   throw lastErr || new Error("Nie udało się pobrać HTML (unknown).");
 }
 
-async function fetchAndFormatTable() {
+function toNumber(x) {
+  return Number(String(x ?? "").replace(/[+,]/g, "").trim() || "0");
+}
+
+/**
+ * Buduje tabelę i zwraca { chunks, fetchedAt }
+ * forceRefresh=true -> pomija cache, pobiera świeże dane i aktualizuje cache
+ */
+async function buildTableChunks({ forceRefresh = false } = {}) {
+  if (!forceRefresh && isCacheValid()) {
+    return { chunks: tableCache.chunks, fetchedAt: tableCache.fetchedAt, cached: true };
+  }
+
   const html = await fetchHtmlWithRetry(SOURCE_URL, 3);
   const $ = cheerio.load(html);
 
@@ -140,17 +173,11 @@ async function fetchAndFormatTable() {
   });
 
   if (!raw.length) {
-    console.log(
-      "DEBUG: myTable2 exists in HTML?",
-      String(html).includes(TABLE_ID)
-    );
-    throw new Error(
-      `Nie znaleziono tabeli o id="${TABLE_ID}" (blokada / zmiana strony).`
-    );
+    console.log("DEBUG: table exists in HTML?", String(html).includes(TABLE_ID));
+    throw new Error(`Nie znaleziono tabeli o id="${TABLE_ID}" (blokada / zmiana strony).`);
   }
 
   // --- logika jak Twój skrypt: removeRows + removeColumn + sortTable ---
-  // removeRows: usuń wiersze gdzie col[13] == '0' albo '-'
   const filtered = raw.filter((row, i) => {
     if (i === 0) return true;
     const v = row[13];
@@ -169,30 +196,53 @@ async function fetchAndFormatTable() {
   removeColumn(filtered, 2, 10);
   removeColumn(filtered, 5, 1);
 
-  // sortTable(2): sort malejąco po kolumnie 2 (liczbowe)
   const header = filtered.shift();
   const lastRow = filtered.pop();
 
+  // sort malejąco po kolumnie 2 (EXPy)
   filtered.sort((b, a) => {
     const A = (a?.[2] || "").replace(/[+,]/g, "") || "0";
     const B = (b?.[2] || "").replace(/[+,]/g, "") || "0";
     return A.localeCompare(B, undefined, { numeric: true });
   });
 
-  const finalTable = [header, ...filtered, lastRow].filter(Boolean);
+  let finalTable = [header, ...filtered, lastRow].filter(Boolean);
 
-  // --- formatowanie ANSI: zielone +, czerwone -, nagłówek szary/pogrubiony ---
+  // ===== TOP 3 medals =====
+  // Zakładamy układ: Nick | Lvl | Exp yesterday | Exp 7 days | Exp 30 days
+  // Medale liczymy tylko na podstawie "wierszy graczy" (bez nagłówka i bez TOTAL jeśli istnieje)
+  const medals = ["🥇", "🥈", "🥉"];
+
+  // Wykryj, czy ostatni wiersz wygląda na Total (czasem w nicku jest "Total")
+  const bodyRows = finalTable.slice(1); // bez header
+  const totalIndexInFinal =
+    bodyRows.length > 0 &&
+    String(bodyRows[bodyRows.length - 1][0] || "").trim().toLowerCase() === "total"
+      ? finalTable.length - 1
+      : -1;
+
+  // Indeksy w finalTable dla graczy: od 1 do (przed Total jeśli jest)
+  const lastPlayerRowIndex = totalIndexInFinal === -1 ? finalTable.length - 1 : totalIndexInFinal - 1;
+
+  // Oznacz TOP3 w kolumnie 0 (Nick) dla pierwszych 3 graczy
+  for (let i = 0; i < 3; i++) {
+    const rowIndex = 1 + i; // 1..3
+    if (rowIndex <= lastPlayerRowIndex) {
+      const currentNick = String(finalTable[rowIndex][0] ?? "");
+      finalTable[rowIndex][0] = `${medals[i]} ${currentNick}`;
+    }
+  }
+
+  // --- ANSI formatting: zielone +, czerwone -, nagłówek szary/pogrubiony ---
   const coloredTable = finalTable.map((row, idx) => {
-    if (idx === 0) return row.map((c) => String(c ?? "")); // nagłówek bez kolorów
+    if (idx === 0) return row.map((c) => String(c ?? "")); // header
     return row.map((cell, cIdx) => {
-      // Zakładamy układ: Nick | Lvl | Exp yesterday | Exp 7 days | Exp 30 days
-      // Kolory dajemy od kolumny 2 w prawo (EXP)
-      if (cIdx >= 2) return colorizeSigned(cell);
+      if (cIdx >= 2) return colorizeSigned(cell); // EXP columns
       return String(cell ?? "");
     });
   });
 
-  // szerokości liczymy po tekście bez ANSI
+  // szerokości po tekście bez ANSI
   const colWidths = [];
   for (const row of coloredTable) {
     row.forEach((cell, i) => {
@@ -208,22 +258,30 @@ async function fetchAndFormatTable() {
     return rawStr + " ".repeat(len - visibleLen);
   };
 
-  // Dwie spacje między kolumnami wyglądają bardziej jak tabela z UI
   const lines = coloredTable.map((row, i) => {
     const line = row.map((cell, c) => pad(cell, colWidths[c])).join("  ");
     if (i === 0) return `${ANSI.bold}${ANSI.gray}${line}${ANSI.reset}`;
     return line;
   });
 
-  return chunkAnsiBlocks(lines, 1900);
+  const chunks = chunkAnsiBlocks(lines, 1900);
+  const fetchedAt = new Date();
+
+  // update cache
+  tableCache.chunks = chunks;
+  tableCache.fetchedAt = fetchedAt;
+
+  return { chunks, fetchedAt, cached: false };
 }
 
-async function sendTable(channel) {
-  const ts = formatTimestamp(new Date());
-  await channel.send(`📊 **GuildStats – dane z:** ${ts}`);
+async function sendTable(channel, { forceRefresh = false } = {}) {
+  const result = await buildTableChunks({ forceRefresh });
 
-  const chunks = await fetchAndFormatTable();
-  for (const chunk of chunks) {
+  const tsData = formatTimestamp(result.fetchedAt);
+  const cachedNote = result.cached ? ` ⚡(cache ${cacheAgeText()})` : "";
+  await channel.send(`📊 **GuildStats – dane z:** ${tsData}${cachedNote}`);
+
+  for (const chunk of result.chunks) {
     await channel.send(chunk);
   }
 }
@@ -232,13 +290,15 @@ async function sendTable(channel) {
 client.once("ready", () => {
   console.log(`✅ Bot online jako: ${client.user.tag}`);
   console.log(`⏰ Zaplanowano wysyłkę: "${CRON_SCHEDULE}" (${TIMEZONE})`);
+  console.log(`🧠 Cache TTL: ${CACHE_TTL_MIN} min`);
 
+  // Cron: odświeżamy dane (forceRefresh), żeby cache był zawsze świeży
   cron.schedule(
     CRON_SCHEDULE,
     async () => {
       try {
         const channel = await client.channels.fetch(CHANNEL_ID);
-        await sendTable(channel);
+        await sendTable(channel, { forceRefresh: true });
       } catch (e) {
         console.error("CRON ERROR:", e?.message || e);
       }
@@ -247,14 +307,21 @@ client.once("ready", () => {
   );
 });
 
+// Komendy:
+//  - !tabela -> używa cache (instant jeśli ważny)
+//  - !tabela force -> wymusza świeże pobranie (omija cache)
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
-  if ((msg.content || "").trim() !== "!tabela") return;
 
-  await msg.channel.send("🏆 Pobieram dane...");
+  const content = (msg.content || "").trim();
+  if (!content.startsWith("!tabela")) return;
+
+  const force = content.toLowerCase().includes("force");
+
+  await msg.channel.send(force ? "🏆 Pobieram świeże dane..." : "🏆 Pobieram dane...");
 
   try {
-    await sendTable(msg.channel);
+    await sendTable(msg.channel, { forceRefresh: force });
   } catch (e) {
     const errMsg = e?.message ? String(e.message).slice(0, 500) : "unknown error";
     console.error("COMMAND ERROR:", e);

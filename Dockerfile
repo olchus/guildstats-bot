@@ -1,11 +1,21 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+# Chromium + fonty (ładny rendering tekstu)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    ca-certificates \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY bot.js ./
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-ENV NODE_ENV=production
-CMD ["npm", "start"]
+COPY . .
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+CMD ["node", "src/index.js"]

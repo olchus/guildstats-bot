@@ -4,9 +4,4 @@ services:
     container_name: guildstats-bot
     restart: unless-stopped
     environment:
-      DISCORD_TOKEN: "${DISCORD_TOKEN}"
-      DISCORD_CHANNEL_ID: "${DISCORD_CHANNEL_ID}"
-      CRON_SCHEDULE: "0 13 * * *"
-      TZ: "Europe/Warsaw"
-      SOURCE_URL: "https://guildstats.eu/guild=bambiki&op=3"
-      TABLE_ID: "myTable2"
+      - .env

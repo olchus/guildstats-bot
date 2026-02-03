@@ -7,7 +7,7 @@ const cron = require("node-cron");
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
-const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "30 11 * * *"; // 11:30
+const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "0 13 * * *"; // 13:00
 const TIMEZONE = process.env.TZ || "Europe/Warsaw";
 
 const SOURCE_URL =

@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-core");
 
 /**
  * Wczytuje CSS z pliku table.css
@@ -99,15 +99,10 @@ async function renderPng({
 }) {
   const html = buildHtml({ title, ts, rows });
 
-  const launchOptions = {
+  const browser = await puppeteer.launch({
+    executablePath,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  };
-
-  if (executablePath) {
-    launchOptions.executablePath = executablePath;
-  }
-
-  const browser = await puppeteer.launch(launchOptions);
+  });
 
   try {
     const page = await browser.newPage();

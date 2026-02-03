@@ -3,5 +3,5 @@ services:
     build: .
     container_name: guildstats-bot
     restart: unless-stopped
-    environment:
+    env_file:
       - .env

@@ -1,2 +1,2 @@
-Aktualizacja w kontenerze za pomocą komenty:
+Aktualizacja w kontenerze za pomocą komendy:
 ``update-bot``

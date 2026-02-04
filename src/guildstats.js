@@ -36,6 +36,10 @@ async function fetchHtmlWithRetry(url, tries = 3) {
   throw lastErr || new Error("Nie udało się pobrać HTML (unknown).");
 }
 
+function toNumber(x) {
+  return Number(String(x ?? "").replace(/[+,]/g, "").trim() || "0");
+}
+
 /**
  * Zwraca "rows" = Array<Array<string>>
  * row[0] = header
@@ -107,6 +111,25 @@ async function buildRows({ sourceUrl, tableId }) {
     const rowIndex = 1 + i;
     if (rowIndex <= lastPlayerRowIndex) {
       rows[rowIndex][0] = `${medals[i]} ${String(rows[rowIndex][0] ?? "")}`;
+    }
+  }
+
+    // ☠️ SKULL dla osób z ujemnym Exp yesterday
+  // Po cięciach kolumn: [0]=Nick, [1]=Lvl, [2]=Exp yesterday, [3]=Exp 7 days, [4]=Exp 30 days
+  // Nie dotykamy nagłówka (index 0) i wiersza Total (jeśli jest).
+  for (let i = 1; i < rows.length; i++) {
+    const nick = String(rows[i][0] ?? "").trim();
+    if (!nick) continue;
+
+    // pomiń Total
+    if (nick.toLowerCase() === "total") continue;
+
+    const expYesterday = toNumber(rows[i][2]);
+    if (expYesterday < 0) {
+      // jeśli już jest czaszka, nie duplikuj
+      if (!nick.includes("☠️")) {
+        rows[i][0] = `☠️ ${rows[i][0]}`;
+      }
     }
   }
 

@@ -29,7 +29,12 @@ async function buildOrGetPng({ forceRefresh = false } = {}) {
     return { pngBuffer, fetchedAt, cached: true };
   }
 
-  const rows = await buildRows({ sourceUrl: config.sourceUrl, tableId: config.tableId });
+  const rows = await buildRows({ 
+    sourceUrl: config.sourceUrl,
+    tableId: config.tableId,
+    sortCol: 2,
+    skullCol: 2
+  });
   const fetchedAt = new Date();
 
   const pngBuffer = await renderPng({
@@ -59,6 +64,34 @@ async function sendPng(channel, { forceRefresh = false } = {}) {
   });
 }
 
+async function sendMonthlyPng(channel) {
+  const rows = await buildRows({
+    sourceUrl: config.sourceUrl,
+    tableId: config.tableId,
+    sortCol: 4,      // monthly: Exp 30 days
+    skullCol: null   // nie pokazujemy skull w podsumowaniu miesięcznym
+  });
+
+  const fetchedAt = new Date();
+  const ts = formatTimestamp(fetchedAt);
+
+  const pngBuffer = await renderPng({
+    rows,
+    title: "GuildStats – Podsumowanie miesiąca (Exp 30 days)",
+    ts: `Dane z: ${ts}`,
+    width: config.pngWidth,
+    scale: config.pngScale,
+    executablePath: config.puppeteerExecutablePath,
+  });
+
+  const file = new AttachmentBuilder(pngBuffer, { name: "guildstats-monthly.png" });
+
+  await channel.send({
+    content: `🗓️ **Miesięczne podsumowanie XP** – ${ts}`,
+    files: [file],
+  });
+}
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
@@ -76,6 +109,20 @@ client.once("ready", () => {
         await sendPng(channel, { forceRefresh: true });
       } catch (e) {
         console.error("CRON ERROR:", e?.message || e);
+      }
+    },
+    { timezone: config.timezone }
+  );
+  console.log(`🗓️ Miesięczny raport: "${config.monthlyCronSchedule}" (${config.timezone})`);
+
+  cron.schedule(
+    config.monthlyCronSchedule,
+    async () => {
+      try {
+        const channel = await client.channels.fetch(config.discordChannelId);
+        await sendMonthlyPng(channel);
+      } catch (e) {
+        console.error("MONTHLY CRON ERROR:", e?.message || e);
       }
     },
     { timezone: config.timezone }

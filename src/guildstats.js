@@ -46,7 +46,7 @@ function toNumber(x) {
  * row[1..] = gracze
  * plus ewentualny wiersz Total na końcu (jeśli istnieje)
  */
-async function buildRows({ sourceUrl, tableId }) {
+async function buildRows({ sourceUrl, tableId, sortCol = 2, skullCol = 2 }) {
   const html = await fetchHtmlWithRetry(sourceUrl, 3);
   const $ = cheerio.load(html);
 
@@ -88,8 +88,8 @@ async function buildRows({ sourceUrl, tableId }) {
 
   // sortTable(2): malejąco po kolumnie 2 (liczbowe)
   filtered.sort((b, a) => {
-    const A = (a?.[2] || "").replace(/[+,]/g, "") || "0";
-    const B = (b?.[2] || "").replace(/[+,]/g, "") || "0";
+    const A = (a?.[sortCol] || "").replace(/[+,]/g, "") || "0";
+    const B = (b?.[sortCol] || "").replace(/[+,]/g, "") || "0";
     return A.localeCompare(B, undefined, { numeric: true });
   });
 

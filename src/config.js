@@ -9,6 +9,7 @@ const config = {
   discordChannelId: requireEnv("DISCORD_CHANNEL_ID"),
 
   cronSchedule: process.env.CRON_SCHEDULE || "0 13 * * *",
+  monthlyCronSchedule: process.env.CRON_SCHEDULE_MONTHLY || "0 14 1 * *",
   timezone: process.env.TZ || "Europe/Warsaw",
 
   sourceUrl: process.env.SOURCE_URL || "https://guildstats.eu/guild=bambiki&op=3",

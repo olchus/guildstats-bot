@@ -29,11 +29,9 @@ async function buildOrGetPng({ forceRefresh = false } = {}) {
     return { pngBuffer, fetchedAt, cached: true };
   }
 
-  const rows = await buildRows({ 
+  const rows = await buildRows({
     sourceUrl: config.sourceUrl,
-    tableId: config.tableId,
-    sortCol: 2,
-    skullCol: 2
+    mode: "daily",
   });
   const fetchedAt = new Date();
 
@@ -67,9 +65,7 @@ async function sendPng(channel, { forceRefresh = false } = {}) {
 async function sendMonthlyPng(channel) {
   const rows = await buildRows({
     sourceUrl: config.sourceUrl,
-    tableId: config.tableId,
-    sortCol: 4,      // monthly: Exp 30 days
-    skullCol: null   // nie pokazujemy skull w podsumowaniu miesięcznym
+    mode: "monthly",
   });
 
   const fetchedAt = new Date();
@@ -77,7 +73,7 @@ async function sendMonthlyPng(channel) {
 
   const pngBuffer = await renderPng({
     rows,
-    title: "GuildStats – Podsumowanie miesiąca (Exp 30 days)",
+    title: "GuildStats – Podsumowanie miesiaca (Exp 30 days)",
     ts: `Dane z: ${ts}`,
     width: config.pngWidth,
     scale: config.pngScale,

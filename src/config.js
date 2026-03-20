@@ -12,8 +12,7 @@ const config = {
   monthlyCronSchedule: process.env.CRON_SCHEDULE_MONTHLY || "0 14 1 * *",
   timezone: process.env.TZ || "Europe/Warsaw",
 
-  sourceUrl: process.env.SOURCE_URL || "https://guildstats.eu/guild=bambiki&op=3",
-  tableId: process.env.TABLE_ID || "myTable2",
+  sourceUrl: process.env.SOURCE_URL || "https://guildstats.eu/guild=bambiki&op=3#timeonline",
 
   // cache PNG w minutach
   cacheTtlMin: Number(process.env.CACHE_TTL_MIN || 15),

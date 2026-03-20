@@ -269,7 +269,8 @@ function applyDecorations(entries, mode) {
 
 async function buildRows({ sourceUrl, mode = "daily" } = {}) {
   const entries = await fetchGuildStatsData({ sourceUrl });
-  const sorted = [...entries].sort(compareForMode(mode));
+  const filtered = entries.filter((entry) => entry.isTotal || (entry.expDaily !== null && entry.expDaily !== 0));
+  const sorted = [...filtered].sort(compareForMode(mode));
   const decorated = applyDecorations(sorted, mode);
 
   const header = ["Nick", "Lvl", "Exp yesterday", "Exp 7 days", "Exp 30 days"];

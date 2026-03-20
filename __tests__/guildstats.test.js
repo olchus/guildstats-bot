@@ -153,27 +153,23 @@ describe("guildstats", () => {
     ]);
   });
 
-  test("buildRows creates the daily table sorted by daily exp and adds skulls only for negative daily rows", async () => {
+  test("buildRows removes rows with daily exp equal to 0 or unavailable and keeps skulls only for negative daily rows", async () => {
     const rows = await buildRows({ sourceUrl: SOURCE_URL, mode: "daily" });
 
     expect(rows).toEqual([
       ["Nick", "Lvl", "Exp yesterday", "Exp 7 days", "Exp 30 days"],
       ["\u{1F947} Alpha Knight", "700", "+120", "+900", "+5,000"],
-      ["\u{1F948} Gamma Paladin", "300", "0", "+200", "+300"],
-      ["\u2620\uFE0F \u{1F949} Beta Mage", "650", "-50", "+1,000", "+9,000"],
-      ["Tiny Druid", "100", "-", "-", "-"],
+      ["\u2620\uFE0F \u{1F948} Beta Mage", "650", "-50", "+1,000", "+9,000"],
     ]);
   });
 
-  test("buildRows creates the monthly table sorted by monthly exp without skulls", async () => {
+  test("buildRows removes rows with daily exp equal to 0 or unavailable also in monthly mode", async () => {
     const rows = await buildRows({ sourceUrl: SOURCE_URL, mode: "monthly" });
 
     expect(rows).toEqual([
       ["Nick", "Lvl", "Exp yesterday", "Exp 7 days", "Exp 30 days"],
       ["\u{1F947} Beta Mage", "650", "-50", "+1,000", "+9,000"],
       ["\u{1F948} Alpha Knight", "700", "+120", "+900", "+5,000"],
-      ["\u{1F949} Gamma Paladin", "300", "0", "+200", "+300"],
-      ["Tiny Druid", "100", "-", "-", "-"],
     ]);
   });
 });

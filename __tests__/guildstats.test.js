@@ -167,9 +167,9 @@ describe("guildstats", () => {
     const rows = await buildRows({ sourceUrl: SOURCE_URL, mode: "monthly" });
 
     expect(rows).toEqual([
-      ["Nick", "Lvl", "Exp yesterday", "Exp 7 days", "Exp 30 days"],
-      ["\u{1F947} Beta Mage", "650", "-50", "+1,000", "+9,000"],
-      ["\u{1F948} Alpha Knight", "700", "+120", "+900", "+5,000"],
+      ["Nick", "Lvl", "Exp 30 days"],
+      ["\u{1F947} Beta Mage", "650", "+9,000"],
+      ["\u{1F948} Alpha Knight", "700", "+5,000"],
     ]);
   });
 });

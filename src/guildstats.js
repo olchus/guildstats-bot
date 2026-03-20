@@ -273,14 +273,22 @@ async function buildRows({ sourceUrl, mode = "daily" } = {}) {
   const sorted = [...filtered].sort(compareForMode(mode));
   const decorated = applyDecorations(sorted, mode);
 
-  const header = ["Nick", "Lvl", "Exp yesterday", "Exp 7 days", "Exp 30 days"];
-  const rows = decorated.map((entry) => [
-    entry.displayName,
-    formatPlainNumber(entry.level),
-    formatSignedNumber(entry.expDaily),
-    formatSignedNumber(entry.expWeekly),
-    formatSignedNumber(entry.expMonthly),
-  ]);
+  const header =
+    mode === "monthly"
+      ? ["Nick", "Lvl", "Exp 30 days"]
+      : ["Nick", "Lvl", "Exp yesterday", "Exp 7 days", "Exp 30 days"];
+
+  const rows = decorated.map((entry) =>
+    mode === "monthly"
+      ? [entry.displayName, formatPlainNumber(entry.level), formatSignedNumber(entry.expMonthly)]
+      : [
+          entry.displayName,
+          formatPlainNumber(entry.level),
+          formatSignedNumber(entry.expDaily),
+          formatSignedNumber(entry.expWeekly),
+          formatSignedNumber(entry.expMonthly),
+        ]
+  );
 
   return [header, ...rows];
 }

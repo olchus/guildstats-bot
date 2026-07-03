@@ -1,3 +1,23 @@
+# Zależności instalujemy w obrazie (npm ci), nie kopiujemy lokalnych
 node_modules
-npm-debug.log
+npm-debug.log*
+
+# Git i konfiguracja CI
+.git
+.gitignore
+.github
+
+# Testy (niepotrzebne w obrazie produkcyjnym)
+__tests__
+*.test.js
+coverage
+
+# Sekrety — NIGDY do obrazu
 .env
+.env.*
+
+# Dokumentacja i pliki dev
+*.md
+Dockerfile
+docker-compose*.yml
+.dockerignore

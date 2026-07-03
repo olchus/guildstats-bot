@@ -1,0 +1,29 @@
+# Deployment GCP — osobny od Twojego docker-compose.yml używanego na homelabie.
+#
+# Umiejscowienie:
+#   - w repo (dla wersjonowania): docker-compose.gcp.yml w roocie repo
+#   - na maszynie GCP:            /opt/bot/docker-compose.gcp.yml
+# Uruchamianie na VM: docker compose -f docker-compose.gcp.yml up -d
+#   (flaga -f jest konieczna, bo nazwa różni się od domyślnej "docker-compose.yml")
+#
+# Homelab i GCP współdzielą ten sam obraz z ghcr.io — różni je tylko ten plik
+# uruchomieniowy (limity RAM, Watchtower, brak lokalnego builda).
+
+services:
+  bot:
+    image: ghcr.io/olchus/guildstats-bot:latest
+    restart: unless-stopped
+    init: true                                   # poprawne sprzątanie procesów-dzieci Chromium (bez zombie)
+    env_file: .env                               # token wstrzyknięty z Secret Managera (krok 9a przewodnika)
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=512    # limit sterty Node, zostawia RAM dla Chromium
+    mem_limit: 850m                              # twardy bufor przed OOM na 1 GB
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 300   # co 5 min; --cleanup czyści stare obrazy
